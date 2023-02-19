@@ -13,7 +13,7 @@ def generate_vector_series_from_covariance_mat(
     cov: np.ndarray,
     samples: int = 1000,
     mu: Union[float, List[float]] = 0,
-    seed: Optional[int] = None,
+    rng: Optional[np.random._generator.Generator] = None,
 ) -> np.ndarray:
     """
     To generate a random vector of a specific covariance matrix R
@@ -39,9 +39,10 @@ def generate_vector_series_from_covariance_mat(
 
     # step b)
     # generate some samples vectors series
-    if seed is not None:
-        np.random.seed(seed)
-    X = np.random.randn(np.max((2, samples, cov.shape[0])), cov.shape[0])
+    if rng is None:
+        rng = np.random.default_rng()
+    # X = np.random.randn(np.max((2, samples, cov.shape[0])), cov.shape[0])
+    X = rng.normal(size=(np.max((2, samples, cov.shape[0])), cov.shape[0]))
     # We now want to remove the random variation away from the zero mean and identity covariance (making the sample mean
     # 0 and sample covariance the identity matrix of cov.shape)
 
@@ -93,7 +94,7 @@ def generate_avg_random_vector_series_from_covariance_mat(
     mu: Union[float, List[float]] = 0,
     samples: int = 1000,
     iterations: int = 100,
-    seed: Optional[int] = None,
+    rng: Optional[np.random._generator.Generator] = None,
     verbose: bool = False,
 ) -> np.ndarray:
     if samples < cov.shape[0] and samples != 1:
@@ -105,13 +106,24 @@ def generate_avg_random_vector_series_from_covariance_mat(
             mu *= cov.shape[0]
         else:
             raise ValueError(f"Provided mean values do not match length of covariance shape. {len(mu)} != {cov.shape[0]}")
+    if rng is None:
+        rng = np.random.default_rng()
+
     avg_Y = np.zeros((iterations, np.max((samples, cov.shape[0])), cov.shape[0]))
-    if verbose:
-        for it in tqdm(range(iterations), desc="Generating Random Vector Series"):
-            avg_Y[it] = generate_vector_series_from_covariance_mat(cov, samples, mu, seed=seed)
+    if samples == 1 and cov.shape[0] == 1:
+        if verbose:
+            for it in tqdm(range(iterations), desc="Generating Random Vector Series"):
+                avg_Y[it] = rng.normal(mu[0], cov)
+        else:
+            for it in range(iterations):
+                avg_Y[it] = rng.normal(mu[0], cov)
     else:
-        for it in range(iterations):
-            avg_Y[it] = generate_vector_series_from_covariance_mat(cov, samples, mu, seed=seed)
+        if verbose:
+            for it in tqdm(range(iterations), desc="Generating Random Vector Series"):
+                avg_Y[it] = generate_vector_series_from_covariance_mat(cov, samples, mu, rng=rng)
+        else:
+            for it in range(iterations):
+                avg_Y[it] = generate_vector_series_from_covariance_mat(cov, samples, mu, rng=rng)
 
     avg_Y = np.mean(avg_Y, axis=0)
     if samples < cov.shape[0]:

@@ -33,9 +33,9 @@ def initial_state_vector(
     m_0: List[float] = 0.0,
     PI_0: np.ndarray = np.zeros((1,)),
     iterations: int = 1000,
-    seed: Optional[int] = None,
+    rng: Optional[np.random._generator.Generator] = None,
 ) -> np.ndarray:
-    return generate_avg_random_vector_series_from_covariance_mat(PI_0, m_0, samples=2, iterations=iterations, seed=seed)
+    return generate_avg_random_vector_series_from_covariance_mat(PI_0, m_0, samples=2, iterations=iterations, rng=rng)
 
 
 def kalman_filter(
@@ -50,46 +50,65 @@ def kalman_filter(
     PI_0: np.ndarray = np.zeros((2, 2)),
     seed: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
+    if seed is not None:
+        rng = np.random.default_rng(seed)
+    else:
+        rng = np.random.default_rng()
+
     if m_0 is None:
         m_0 = [0]
     x_k = np.zeros((iterations, len(m_0)))
     if PI_0.any():
-        x_0 = initial_state_vector(m_0, PI_0, iterations=rvg_iterations, seed=seed)
+        x_0 = initial_state_vector(m_0, PI_0, iterations=rvg_iterations, rng=rng)
     else:
         x_0 = m_0
     x_k[0] = x_0
 
-    u_k = generate_avg_random_vector_series_from_covariance_mat(Q_k(0), samples=iterations, iterations=rvg_iterations, seed=seed)
-    w_k = generate_avg_random_vector_series_from_covariance_mat(R_k, samples=iterations, iterations=rvg_iterations, seed=seed)
-    # u_k = np.zeros((iterations, len(np.where(C_k == 1)[0])))  # determined by how many variables we are solving for
-    # w_k = np.zeros((iterations, len(np.where(C_k == 1)[0])))
+    # u_k = generate_avg_random_vector_series_from_covariance_mat(Q_k, samples=iterations, iterations=rvg_iterations, seed=seed)
+    # w_k = generate_avg_random_vector_series_from_covariance_mat(R_k, samples=iterations, iterations=rvg_iterations, seed=seed)
+    vars_to_solve = len(np.where(C_k == 1)[0])
+    # u_k = np.zeros((iterations, vars_to_solve))  # determined by how many variables we are solving for
+    # w_k = np.zeros((iterations, vars_to_solve))
     r_k = np.zeros((iterations, len(m_0) - 1))
     for k in range(1, iterations):
-        # u = generate_avg_random_vector_series_from_covariance_mat(Q_k(k-1), samples=len(m_0) - 1, iterations=rvg_iterations,
-        #                                                             seed=seed)
-        # w = generate_avg_random_vector_series_from_covariance_mat(R_k, samples=len(m_0) - 1, iterations=rvg_iterations,
-        #                                                             seed=seed)
+        u = generate_avg_random_vector_series_from_covariance_mat(Q_k(k-1), samples=vars_to_solve, iterations=rvg_iterations,
+                                                                    rng=rng)
+        # u_k[k-1] = u
+        w = generate_avg_random_vector_series_from_covariance_mat(R_k, samples=vars_to_solve, iterations=rvg_iterations,
+                                                                    rng=rng)
+        # w_k[k-1] = w
         print(f"k = '{k}'")
         s_k = np.expand_dims(F_k(k) @ x_k[k-1], 1)
-        if len(u_k[k-1].shape) == 1:
-            u = np.expand_dims(u_k[k-1], 1)
+        # if len(u_k[k-1].shape) == 1:
+        #     u = np.expand_dims(u_k[k-1], 1)
+        # else:
+        #     u = u_k[k-1]
+
+        if G_k(k).shape[1] == u.shape[0]:
+            u_k_1 = G_k(k) @ u
+            x_k[k] = np.squeeze(np.add(s_k, u_k_1))
+        elif G_k(k).shape[0] == u.shape[1]:
+            u_k_1 = u @ G_k(k)
+            x_k[k] = np.squeeze(np.add(s_k, u_k_1.T))
         else:
-            u = u_k[k-1]
-        # if len(u.shape) == 1:
-        #     u = np.expand_dims(u, 1)
-        u_k_1 = G_k(k) @ u
-        x_k[k] = np.squeeze(np.add(s_k, u_k_1))
+            raise RuntimeError(f"Mismatched shapes between u_k & G_k(k) where k = '{k}'.\n"
+                               f"G_k(k) = \n"
+                               f"'{G_k(k)}'\n"
+                               f"u = \n"
+                               f"'{u}'")
+
         print(f"x_k[k] = '{x_k[k]}'")
 
         temp_r_k = C_k @ x_k[k]
-        if len(w_k[k-1].shape) == 1:
-            w = np.expand_dims(w_k[k-1], 1)
-        else:
-            w = w_k[k-1]
+        # if len(w_k[k-1].shape) == 1:
+        #     w = np.expand_dims(w_k[k-1], 1)
+        # else:
+        #     w = w_k[k-1]
         # if len(w.shape) == 1:
         #     w = np.expand_dims(w, 1)
         r_k[k] = np.add(temp_r_k, w)
         print(f"r_k[k] = '{r_k[k]}'\n\n")
+        a = 0
 
     return x_k, r_k
 
@@ -98,6 +117,7 @@ def roughly_constant_velocity_motion_model(
     p0: float,
     s0: float,
     period: int,
+    acceleration_variance: Optional[float] = None,
     Q_k: Optional[np.ndarray] = None,
     R_k: Optional[np.ndarray] = None,
     iterations: int = 100,
@@ -105,29 +125,29 @@ def roughly_constant_velocity_motion_model(
     seed: Optional[int] = None,
     fig_output_path: Optional[Path] = None,
     method: int = 0,
-    acceleration_variance: Optional[float] = None,
 ):
-    F_k = lambda k: np.array(([[1, period], [0, 1]]))
+    if seed is not None:
+        rng = np.random.default_rng(seed)
+    else:
+        rng = np.random.default_rng()
+    if acceleration_variance is None:
+        acceleration_variance = rng.uniform(0, 1, size=1)
+
     if method == 0:
         G_k = lambda k: np.array(([[0.5*(period**2)], [period]]))
         if Q_k is None:
-            Q_k = lambda k: np.eye(1)
+            Q_k = lambda k: np.eye(1) * acceleration_variance
     elif method == 1:
-        G_k = np.ones((2, 1))
-        G_k[1] = 0
+        G_k = lambda k: np.eye(2)
         if Q_k is None:
-            if acceleration_variance is None:
-                if seed is not None:
-                    np.random.seed(seed)
-                acceleration_variance = np.random.uniform(0, 1, size=1)
             Q_k = lambda k: acceleration_variance * np.array([[(period**4)/4, (period**3)/2], [(period**3)/2, period**2]])
     else:
         raise RuntimeError(f"Got unsupported method '{method}'. Choose from: '0' or '1'.")
+
+    F_k = lambda k: np.array(([[1, period], [0, 1]]))
     C_k = np.array([[1, 0]])
     if R_k is None:
-        if seed is not None:
-            np.random.seed(seed)
-        R_k = np.eye(1) * np.random.uniform(0, 1, size=1)
+        R_k = np.eye(1) * rng.uniform(0, 1, size=1)
     x_k, r_k = kalman_filter(
         Q_k=Q_k,
         F_k=F_k,
@@ -163,6 +183,7 @@ def main():
         rvg_iterations=random_vector_generator_iterations,
         seed=seed,
         fig_output_path=fig_output_path,
+        method=0,
     )
 
 
