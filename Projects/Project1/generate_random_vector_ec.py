@@ -1,3 +1,4 @@
+__all__ = ["generate_vector_series_from_covariance_mat", "generate_avg_random_vector_series_from_covariance_mat"]
 from pathlib import Path
 from typing import List, Optional, Union, Tuple
 
@@ -5,11 +6,14 @@ import matplotlib.figure
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy
+from tqdm import tqdm
 
 
 def generate_vector_series_from_covariance_mat(
     cov: np.ndarray,
     samples: int = 1000,
+    mu: Union[float, List[float]] = 0,
+    seed: Optional[int] = None,
 ) -> np.ndarray:
     """
     To generate a random vector of a specific covariance matrix R
@@ -24,16 +28,20 @@ def generate_vector_series_from_covariance_mat(
 
     :param cov:
     :param samples:
+    :param mu:
     :return:
     """
 
     # step a)
     # get the lower triangular matrix from the cholesky decomposition of the covariance
-    L = np.linalg.cholesky(cov)
+    # L = np.linalg.cholesky(cov)
+    P, L, U = scipy.linalg.lu(cov)
 
     # step b)
     # generate some samples vectors series
-    X = np.random.randn(samples, cov.shape[0])
+    if seed is not None:
+        np.random.seed(seed)
+    X = np.random.randn(np.max((2, samples, cov.shape[0])), cov.shape[0])
     # We now want to remove the random variation away from the zero mean and identity covariance (making the sample mean
     # 0 and sample covariance the identity matrix of cov.shape)
 
@@ -56,19 +64,60 @@ def generate_vector_series_from_covariance_mat(
     # U = upper triangular matrix
     # to solve the equation
     # PX = LU, we can see here that when U = L.T, we get the cholesky decomposition (no need for P then)
-    P_X, L_X, U_X = scipy.linalg.lu(cov_X)
+    if len(cov_X.shape) == 0:
+        P_X, L_X, U_X = scipy.linalg.lu(np.expand_dims(np.expand_dims(cov_X, 0), 0))
+    else:
+        P_X, L_X, U_X = scipy.linalg.lu(cov_X)
     # Here we are trying to get our sample covariance to be the identity matrix
     inv_L_X = np.linalg.inv(L_X.T)
     # solving for standard_X = L^-1 * zero_mean_X, to obtain a final X that has zero mean and an identity matrix
     # covariance matrix; i.e., unit variance
     # we will use this standard_X as our X in step c)
-    # additionally divide by the number of samples - 1 to get an unbaised normalization
-    standard_X = (X @ inv_L_X) * np.sqrt((X.shape[0] - 1) / (X.shape[0] - 1))
+    # additionally multiply by the square root of the number of samples - 1 / number of samples to get an unbaised normalization
+    standard_X = (X @ inv_L_X) * np.sqrt((X.shape[0] - 1) / X.shape[0])
 
     # step c)
     Y = standard_X @ L
+    if not isinstance(mu, list):
+        mu = [mu] * Y.shape[-1]
+    for idx, mu_ in enumerate(mu):
+        Y[:, idx] += mu_
+    if samples == 1:
+        Y = np.mean(Y, axis=0)
 
     return Y
+
+
+def generate_avg_random_vector_series_from_covariance_mat(
+    cov: np.ndarray,
+    mu: Union[float, List[float]] = 0,
+    samples: int = 1000,
+    iterations: int = 100,
+    seed: Optional[int] = None,
+    verbose: bool = False,
+) -> np.ndarray:
+    if samples < cov.shape[0] and samples != 1:
+        raise ValueError(f"Got samples < cov.shape[0] & samples != 1. Not supported.")
+    if not isinstance(mu, list):
+        mu = [mu] * cov.shape[0]
+    if len(mu) != cov.shape[0]:
+        if len(mu) == 1:
+            mu *= cov.shape[0]
+        else:
+            raise ValueError(f"Provided mean values do not match length of covariance shape. {len(mu)} != {cov.shape[0]}")
+    avg_Y = np.zeros((iterations, np.max((samples, cov.shape[0])), cov.shape[0]))
+    if verbose:
+        for it in tqdm(range(iterations), desc="Generating Random Vector Series"):
+            avg_Y[it] = generate_vector_series_from_covariance_mat(cov, samples, mu, seed=seed)
+    else:
+        for it in range(iterations):
+            avg_Y[it] = generate_vector_series_from_covariance_mat(cov, samples, mu, seed=seed)
+
+    avg_Y = np.mean(avg_Y, axis=0)
+    if samples < cov.shape[0]:
+        avg_Y = np.expand_dims(np.mean(avg_Y, axis=0), 0)
+
+    return avg_Y
 
 
 def element_wise_percent_diff_between_numpy_arrays(initial: np.ndarray, final: np.ndarray) -> np.ndarray:
@@ -89,10 +138,12 @@ def compare_many_generated_vector_series_from_cov_against_cov(
     iterations: int = 100,
 ) -> Tuple[List[float], np.ndarray]:
     avg_diff = np.zeros(cov.shape)
+    cov_avg = np.zeros(cov.shape)
     moving_avg_diff = []
-    for it in range(iterations):
+    for it in tqdm(range(iterations), desc="Generating random variable(s) from covariance"):
         diff, cov_Y = compare_generate_random_vector_from_cov_against_cov(cov, samples)
         avg_diff += diff
+        cov_avg = np.add(cov_avg, cov_Y)
         moving_avg_diff.append(np.sum(avg_diff) / ((it + 1) * cov.shape[0] * cov.shape[1]))
 
     avg_diff /= iterations
@@ -101,7 +152,7 @@ def compare_many_generated_vector_series_from_cov_against_cov(
         f"Overall Average: '{moving_avg_diff[-1]:.5f}%'\n"
         f"average:\n'{avg_diff}'"
     )
-    return moving_avg_diff, cov_Y
+    return moving_avg_diff, np.divide(cov_avg, iterations)
 
 
 def plot_moving_average(moving_avg: List[float], title: Optional[str] = None) -> matplotlib.figure.Figure:
@@ -114,7 +165,7 @@ def plot_moving_average(moving_avg: List[float], title: Optional[str] = None) ->
     ax.set_title(title, fontsize=8)
     ax.set_xlabel("Iterations")
     ax.set_ylabel("Percent Difference")
-    moving_avg_avg = np.mean(moving_avg)
+    moving_avg_avg = np.nanmean(np.ma.masked_invalid(moving_avg))
     ax.legend([f"mean = {moving_avg_avg:.4f}%, samples = {len(moving_avg)}"])
     fig.tight_layout()
 
@@ -130,7 +181,7 @@ def generate_many_random_vectors_and_plot(
     elif not Path(fig_output_path).parent.exists():
         Path(fig_output_path).parent.mkdir(exist_ok=True, parents=True)
 
-    moving_avg, cov_Y = compare_many_generated_vector_series_from_cov_against_cov(
+    moving_avg, cov_avg_Y = compare_many_generated_vector_series_from_cov_against_cov(
         cov=cov,
         samples=samples,
         iterations=iterations,
@@ -139,16 +190,28 @@ def generate_many_random_vectors_and_plot(
     fig.savefig(str(fig_output_path.absolute()))
     plt.close()
     print(f"\nOriginal covariance:\n{cov}\n\n"
-          f"Generated vector's covariance:\n{cov_Y}")
+          f"Generated vector's covariance:\n{cov_avg_Y}")
 
 
-def main():
-    U = np.asarray([[11 / 144, -1 / 96], [-1 / 96, 73 / 960]])
-    samples = 1000
-    iterations = 10000
-    fig_output_path = Path("./ec")
-    generate_many_random_vectors_and_plot(U,fig_output_path, samples=samples, iterations=iterations)
+def main(
+    fig_output_path: Path,
+    samples: int = 1000,
+    number_of_random_variables: int = 2,
+    iterations: int = 10000,
+):
+    x = np.random.normal(size=[samples, number_of_random_variables])
+    U = np.cov(x.T)
+    generate_many_random_vectors_and_plot(U, fig_output_path, samples=samples, iterations=iterations)
 
 
 if __name__ == '__main__':
-    main()
+    samples = 10000
+    number_of_random_variables = 4
+    iterations = 100000
+    fig_output_path = Path("./ec")
+    main(
+        fig_output_path=fig_output_path,
+        samples=samples,
+        number_of_random_variables=number_of_random_variables,
+        iterations=iterations,
+    )
