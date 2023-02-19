@@ -7,9 +7,7 @@ from generate_random_vector_ec import generate_avg_random_vector_series_from_cov
 
 
 def plot_state_model_vs_observation_roughly_constant_velocity_model(
-    x_k: np.ndarray,
-    r_k: np.ndarray,
-    fig_output_path: Path,
+    x_k: np.ndarray, r_k: np.ndarray, fig_output_path: Path
 ):
     x = np.arange(0, len(x_k))
     plt.subplot(1, 2, 1)
@@ -71,19 +69,14 @@ def kalman_filter(
     # w_k = np.zeros((iterations, vars_to_solve))
     r_k = np.zeros((iterations, len(m_0) - 1))
     for k in range(1, iterations):
-        u = generate_avg_random_vector_series_from_covariance_mat(Q_k(k-1), samples=vars_to_solve, iterations=rvg_iterations,
-                                                                    rng=rng)
-        # u_k[k-1] = u
-        w = generate_avg_random_vector_series_from_covariance_mat(R_k, samples=vars_to_solve, iterations=rvg_iterations,
-                                                                    rng=rng)
-        # w_k[k-1] = w
+        u = generate_avg_random_vector_series_from_covariance_mat(
+            Q_k(k - 1), samples=vars_to_solve, iterations=rvg_iterations, rng=rng
+        )
+        w = generate_avg_random_vector_series_from_covariance_mat(
+            R_k, samples=vars_to_solve, iterations=rvg_iterations, rng=rng
+        )
         print(f"k = '{k}'")
-        s_k = np.expand_dims(F_k(k) @ x_k[k-1], 1)
-        # if len(u_k[k-1].shape) == 1:
-        #     u = np.expand_dims(u_k[k-1], 1)
-        # else:
-        #     u = u_k[k-1]
-
+        s_k = np.expand_dims(F_k(k) @ x_k[k - 1], 1)
         if G_k(k).shape[1] == u.shape[0]:
             u_k_1 = G_k(k) @ u
             x_k[k] = np.squeeze(np.add(s_k, u_k_1))
@@ -91,24 +84,19 @@ def kalman_filter(
             u_k_1 = u @ G_k(k)
             x_k[k] = np.squeeze(np.add(s_k, u_k_1.T))
         else:
-            raise RuntimeError(f"Mismatched shapes between u_k & G_k(k) where k = '{k}'.\n"
-                               f"G_k(k) = \n"
-                               f"'{G_k(k)}'\n"
-                               f"u = \n"
-                               f"'{u}'")
+            raise RuntimeError(
+                f"Mismatched shapes between u_k & G_k(k) where k = '{k}'.\n"
+                f"G_k(k) = \n"
+                f"'{G_k(k)}'\n"
+                f"u = \n"
+                f"'{u}'"
+            )
 
         print(f"x_k[k] = '{x_k[k]}'")
 
         temp_r_k = C_k @ x_k[k]
-        # if len(w_k[k-1].shape) == 1:
-        #     w = np.expand_dims(w_k[k-1], 1)
-        # else:
-        #     w = w_k[k-1]
-        # if len(w.shape) == 1:
-        #     w = np.expand_dims(w, 1)
         r_k[k] = np.add(temp_r_k, w)
         print(f"r_k[k] = '{r_k[k]}'\n\n")
-        a = 0
 
     return x_k, r_k
 
@@ -134,13 +122,15 @@ def roughly_constant_velocity_motion_model(
         acceleration_variance = rng.uniform(0, 1, size=1)
 
     if method == 0:
-        G_k = lambda k: np.array(([[0.5*(period**2)], [period]]))
+        G_k = lambda k: np.array(([[0.5 * (period ** 2)], [period]]))
         if Q_k is None:
             Q_k = lambda k: np.eye(1) * acceleration_variance
     elif method == 1:
         G_k = lambda k: np.eye(2)
         if Q_k is None:
-            Q_k = lambda k: acceleration_variance * np.array([[(period**4)/4, (period**3)/2], [(period**3)/2, period**2]])
+            Q_k = lambda k: acceleration_variance * np.array(
+                [[(period ** 4) / 4, (period ** 3) / 2], [(period ** 3) / 2, period ** 2]]
+            )
     else:
         raise RuntimeError(f"Got unsupported method '{method}'. Choose from: '0' or '1'.")
 
@@ -172,7 +162,7 @@ def main():
     m_0 = 0  # beginning mean for x(k)
     seed = 1408
     random_vector_generator_iterations = 1000
-    seed = None
+    # seed = None
     fig_output_path = Path("./kalman_filter.png")
     roughly_constant_velocity_motion_model(
         p0=2,
@@ -187,5 +177,5 @@ def main():
     )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -33,15 +33,14 @@ def generate_vector_series_from_covariance_mat(
     """
 
     # step a)
-    # get the lower triangular matrix from the cholesky decomposition of the covariance
-    # L = np.linalg.cholesky(cov)
+    # get the lower triangular matrix from the cholesky decomposition of the covariance (switched to lu-decomposition,
+    # b/c some input covariances were not positive definite)
     P, L, U = scipy.linalg.lu(cov)
 
     # step b)
     # generate some samples vectors series
     if rng is None:
         rng = np.random.default_rng()
-    # X = np.random.randn(np.max((2, samples, cov.shape[0])), cov.shape[0])
     X = rng.normal(size=(np.max((2, samples, cov.shape[0])), cov.shape[0]))
     # We now want to remove the random variation away from the zero mean and identity covariance (making the sample mean
     # 0 and sample covariance the identity matrix of cov.shape)
@@ -105,7 +104,9 @@ def generate_avg_random_vector_series_from_covariance_mat(
         if len(mu) == 1:
             mu *= cov.shape[0]
         else:
-            raise ValueError(f"Provided mean values do not match length of covariance shape. {len(mu)} != {cov.shape[0]}")
+            raise ValueError(
+                f"Provided mean values do not match length of covariance shape. {len(mu)} != {cov.shape[0]}"
+            )
     if rng is None:
         rng = np.random.default_rng()
 
@@ -136,7 +137,9 @@ def element_wise_percent_diff_between_numpy_arrays(initial: np.ndarray, final: n
     return abs(np.divide(abs(np.subtract(final, initial)), initial)) * 100
 
 
-def compare_generate_random_vector_from_cov_against_cov(cov: np.ndarray, samples: int = 1000) -> Tuple[np.ndarray, np.ndarray]:
+def compare_generate_random_vector_from_cov_against_cov(
+    cov: np.ndarray, samples: int = 1000
+) -> Tuple[np.ndarray, np.ndarray]:
     Y = generate_vector_series_from_covariance_mat(cov, samples)
     cov_Y = np.cov(Y.T)
     percent_diff_cov_Y = element_wise_percent_diff_between_numpy_arrays(cov, cov_Y)
@@ -145,9 +148,7 @@ def compare_generate_random_vector_from_cov_against_cov(cov: np.ndarray, samples
 
 
 def compare_many_generated_vector_series_from_cov_against_cov(
-    cov: np.ndarray,
-    samples: int = 1000,
-    iterations: int = 100,
+    cov: np.ndarray, samples: int = 1000, iterations: int = 100
 ) -> Tuple[List[float], np.ndarray]:
     avg_diff = np.zeros(cov.shape)
     cov_avg = np.zeros(cov.shape)
@@ -159,11 +160,7 @@ def compare_many_generated_vector_series_from_cov_against_cov(
         moving_avg_diff.append(np.sum(avg_diff) / ((it + 1) * cov.shape[0] * cov.shape[1]))
 
     avg_diff /= iterations
-    print(
-        f"***Average Differences***\n"
-        f"Overall Average: '{moving_avg_diff[-1]:.5f}%'\n"
-        f"average:\n'{avg_diff}'"
-    )
+    print(f"***Average Differences***\n" f"Overall Average: '{moving_avg_diff[-1]:.5f}%'\n" f"average:\n'{avg_diff}'")
     return moving_avg_diff, np.divide(cov_avg, iterations)
 
 
@@ -172,7 +169,7 @@ def plot_moving_average(moving_avg: List[float], title: Optional[str] = None) ->
         title = "Moving Average of Percent Difference of Random Vector Generation from Covariance"
 
     fig, ax = plt.subplots()
-    x = np.arange(1, len(moving_avg)+1)
+    x = np.arange(1, len(moving_avg) + 1)
     ax.plot(x, moving_avg)
     ax.set_title(title, fontsize=8)
     ax.set_xlabel("Iterations")
@@ -185,7 +182,7 @@ def plot_moving_average(moving_avg: List[float], title: Optional[str] = None) ->
 
 
 def generate_many_random_vectors_and_plot(
-    cov: np.ndarray, fig_output_path: Union[str, Path], samples: int = 1000, iterations: int = 100,
+    cov: np.ndarray, fig_output_path: Union[str, Path], samples: int = 1000, iterations: int = 100
 ):
     if Path(fig_output_path).suffix in [""]:
         Path(fig_output_path).mkdir(exist_ok=True, parents=True)
@@ -194,29 +191,21 @@ def generate_many_random_vectors_and_plot(
         Path(fig_output_path).parent.mkdir(exist_ok=True, parents=True)
 
     moving_avg, cov_avg_Y = compare_many_generated_vector_series_from_cov_against_cov(
-        cov=cov,
-        samples=samples,
-        iterations=iterations,
+        cov=cov, samples=samples, iterations=iterations
     )
     fig = plot_moving_average(moving_avg)
     fig.savefig(str(fig_output_path.absolute()))
     plt.close()
-    print(f"\nOriginal covariance:\n{cov}\n\n"
-          f"Generated vector's covariance:\n{cov_avg_Y}")
+    print(f"\nOriginal covariance:\n{cov}\n\n" f"Generated vector's covariance:\n{cov_avg_Y}")
 
 
-def main(
-    fig_output_path: Path,
-    samples: int = 1000,
-    number_of_random_variables: int = 2,
-    iterations: int = 10000,
-):
+def main(fig_output_path: Path, samples: int = 1000, number_of_random_variables: int = 2, iterations: int = 10000):
     x = np.random.normal(size=[samples, number_of_random_variables])
     U = np.cov(x.T)
     generate_many_random_vectors_and_plot(U, fig_output_path, samples=samples, iterations=iterations)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     samples = 10000
     number_of_random_variables = 4
     iterations = 100000
