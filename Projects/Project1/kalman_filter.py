@@ -29,7 +29,7 @@ def plot_state_model_vs_observation_roughly_constant_velocity_model(
 
     ax[1].plot(x, x_k[:, 1], label="state model velocity")
     if velocity_const is not None:
-        ax[1].plot(x, [velocity_const] * len(x), '--')
+        ax[1].plot(x, [velocity_const] * len(x), "--")
         ax[1].legend(["-- velocity constant"])
     ax[1].set_xlabel("Time (s)")
     ax[1].set_xticks(xtick_positions, xticks)
@@ -131,7 +131,7 @@ def kalman_filter(
             Q_k(k - 1), samples=vars_to_solve, iterations=rvg_iterations, rng=rng
         )
         w = generate_avg_random_vector_series_from_covariance_mat(
-            R_k(k-1), samples=1, iterations=rvg_iterations, rng=rng
+            R_k(k - 1), samples=1, iterations=rvg_iterations, rng=rng
         )
         print(f"k = '{k}'")
         x_hat_k = np.expand_dims(F_k(k) @ x_k[k - 1], 1)
@@ -193,7 +193,7 @@ def roughly_constant_velocity_motion_model(
         m_0 = [p0, s0]
         PI_0 = np.zeros((2, 2))
     elif method == 2 or method == 3:
-        F_k = lambda k: np.array(([[1, period, (period**2)/2], [0, 1, period], [0, 0, 1]]))
+        F_k = lambda k: np.array(([[1, period, (period ** 2) / 2], [0, 1, period], [0, 0, 1]]))
         if method == 2:
             C_k = np.array([[1, 0, 0], [0, 0, 0], [0, 0, 0]])
         else:
@@ -214,13 +214,21 @@ def roughly_constant_velocity_motion_model(
                 [[(period ** 4) / 4, (period ** 3) / 2], [(period ** 3) / 2, period ** 2]]
             )
     elif method == 2:
-        G_k = lambda k: np.array(([[(period**2)/2, period, 1]]))
+        G_k = lambda k: np.array(([[(period ** 2) / 2, period, 1]]))
         if Q_k is None:
             Q_k = lambda k: np.eye(1) * acceleration_variance
     elif method == 3:
         G_k = lambda k: np.eye(3)
         if Q_k is None:
-            Q_k = lambda k: np.array(([[(period**4)/4, (period**3)/2, (period**2)/2], [(period**3)/2, period**2, period], [(period**2)/2, period, 1]]))
+            Q_k = lambda k: np.array(
+                (
+                    [
+                        [(period ** 4) / 4, (period ** 3) / 2, (period ** 2) / 2],
+                        [(period ** 3) / 2, period ** 2, period],
+                        [(period ** 2) / 2, period, 1],
+                    ]
+                )
+            )
     else:
         raise RuntimeError(f"Got unsupported method '{method}'. Choose from: '0', '1', '2', or '3'.")
 
@@ -241,12 +249,12 @@ def roughly_constant_velocity_motion_model(
     # p_k = p_k-1 + period*v_k-1
     p_k = [p0]
     for _ in range(1, iterations):
-        p_k.append(p_k[-1] + period*s0)
+        p_k.append(p_k[-1] + period * s0)
     p_k_not_constant_velocity = [p0]
     s_k = [s0]
     for _ in range(1, iterations):
-        p_k_not_constant_velocity.append(p_k_not_constant_velocity[-1] + period*s_k[-1] + (0.5 * a0 * (period**2)))
-        s_k.append(s_k[-1] + a0*period)
+        p_k_not_constant_velocity.append(p_k_not_constant_velocity[-1] + period * s_k[-1] + (0.5 * a0 * (period ** 2)))
+        s_k.append(s_k[-1] + a0 * period)
     total_time = iterations * period
     xticks = np.arange(0, total_time + 1)
     if fig_output_path is not None:
@@ -255,11 +263,11 @@ def roughly_constant_velocity_motion_model(
             fig_output_path = Path(fig_output_path) / "kalman_filter.png"
         if method == 0 or method == 1:
             plot_state_model_vs_observation_roughly_constant_velocity_model(
-                x_k, r_k, p_k, fig_output_path, velocity_const=s0, xticks=xticks,
+                x_k, r_k, p_k, fig_output_path, velocity_const=s0, xticks=xticks
             )
         else:
             plot_state_model_vs_observation_roughly_constant_acceleration_model(
-                x_k, r_k, p_k_not_constant_velocity, s_k, fig_output_path, acceleration_const=a0, xticks=xticks,
+                x_k, r_k, p_k_not_constant_velocity, s_k, fig_output_path, acceleration_const=a0, xticks=xticks
             )
 
 
