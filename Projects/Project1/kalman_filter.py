@@ -2,8 +2,16 @@ from pathlib import Path
 from typing import List, Callable, Optional, Tuple, Union
 import matplotlib.pyplot as plt
 import numpy as np
+from enum import Enum
 
 from generate_random_vector_ec import generate_avg_random_vector_series_from_covariance_mat
+
+
+class RoughlyConstantStateModel(Enum):
+    ConstantVelocityModelPosition0 = "0"
+    ConstantVelocityModelPosition1 = "1"
+    ConstantAccelerationModelPosition = "2"
+    ConstantAccelerationModelVelocityAndPosition = "3"
 
 
 def plot_state_model_vs_observation_roughly_constant_velocity_model(
@@ -134,14 +142,14 @@ def kalman_filter(
             R_k(k - 1), samples=1, iterations=rvg_iterations, rng=rng
         )
         print(f"k = '{k}'")
-        x_hat_k = np.expand_dims(F_k(k) @ x_k[k - 1], 1)
+        s_k = np.expand_dims(F_k(k) @ x_k[k - 1], 1)
 
         if G_k(k).shape[1] == u.shape[0]:
             u_k_1 = G_k(k) @ u
-            x_k[k] = np.squeeze(np.add(x_hat_k, u_k_1))
+            x_k[k] = np.squeeze(np.add(s_k, u_k_1))
         elif G_k(k).shape[0] == u.shape[1]:
             u_k_1 = u @ G_k(k)
-            x_k[k] = np.squeeze(np.add(x_hat_k, u_k_1.T))
+            x_k[k] = np.squeeze(np.add(s_k, u_k_1.T))
         else:
             raise RuntimeError(
                 f"Mismatched shapes between u_k & G_k(k) where k = '{k}'.\n"
@@ -167,14 +175,16 @@ def roughly_constant_velocity_motion_model(
     period: float = 1,
     acceleration_variance: Optional[float] = None,
     variance_R_k: Optional[float] = None,
-    Q_k: Optional[np.ndarray] = None,
-    R_k: Optional[np.ndarray] = None,
+    Q_k: Optional[Callable] = None,
+    R_k: Optional[Callable] = None,
     iterations: int = 100,
     rvg_iterations: int = 1000,
     seed: Optional[int] = None,
     fig_output_path: Optional[Path] = None,
-    method: int = 0,
+    method: Union[int, RoughlyConstantStateModel] = RoughlyConstantStateModel.ConstantVelocityModelPosition0,
 ):
+    if isinstance(method, int):
+        method = RoughlyConstantStateModel(str(method))
     if seed is not None:
         rng = np.random.default_rng(seed)
     else:
@@ -187,12 +197,12 @@ def roughly_constant_velocity_motion_model(
     if R_k is None:
         R_k = lambda k: np.eye(2) * np.asarray((variance_R_k, 1))
 
-    if method == 0 or method == 1:
+    if method is RoughlyConstantStateModel.ConstantVelocityModelPosition0 or method == RoughlyConstantStateModel.ConstantVelocityModelPosition1:
         F_k = lambda k: np.array(([[1, period], [0, 1]]))
         C_k = np.array([[1, 0], [0, 0]])
         m_0 = [p0, s0]
         PI_0 = np.zeros((2, 2))
-    elif method == 2 or method == 3:
+    elif method == RoughlyConstantStateModel.ConstantAccelerationModelPosition or method == RoughlyConstantStateModel.ConstantAccelerationModelVelocityAndPosition:
         F_k = lambda k: np.array(([[1, period, (period ** 2) / 2], [0, 1, period], [0, 0, 1]]))
         if method == 2:
             C_k = np.array([[1, 0, 0], [0, 0, 0], [0, 0, 0]])
@@ -203,21 +213,21 @@ def roughly_constant_velocity_motion_model(
     else:
         raise RuntimeError(f"Got unsupported method '{method}'. Choose from: '0', '1', '2', or '3'.")
 
-    if method == 0:
+    if method == RoughlyConstantStateModel.ConstantVelocityModelPosition0:
         G_k = lambda k: np.array(([[0.5 * (period ** 2)], [period]]))
         if Q_k is None:
             Q_k = lambda k: np.eye(1) * acceleration_variance
-    elif method == 1:
+    elif method == RoughlyConstantStateModel.ConstantVelocityModelPosition1:
         G_k = lambda k: np.eye(2)
         if Q_k is None:
             Q_k = lambda k: acceleration_variance * np.array(
                 [[(period ** 4) / 4, (period ** 3) / 2], [(period ** 3) / 2, period ** 2]]
             )
-    elif method == 2:
+    elif method == RoughlyConstantStateModel.ConstantAccelerationModelPosition:
         G_k = lambda k: np.array(([[(period ** 2) / 2, period, 1]]))
         if Q_k is None:
             Q_k = lambda k: np.eye(1) * acceleration_variance
-    elif method == 3:
+    elif method == RoughlyConstantStateModel.ConstantAccelerationModelVelocityAndPosition:
         G_k = lambda k: np.eye(3)
         if Q_k is None:
             Q_k = lambda k: np.array(
@@ -279,7 +289,7 @@ def main():
     iterations = int(total_time / period)
     # seed = None
     fig_output_path = Path("./kalman_filter.png")
-    method = 0
+    method = RoughlyConstantStateModel.ConstantVelocityModelPosition0  # can also be an integer: '0', '1', '2', or '3'
     roughly_constant_velocity_motion_model(
         p0=1000,
         s0=-50,
