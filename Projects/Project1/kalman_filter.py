@@ -279,7 +279,7 @@ def main():
     iterations = int(total_time / period)
     # seed = None
     fig_output_path = Path("./kalman_filter.png")
-    method = 2
+    method = 0
     roughly_constant_velocity_motion_model(
         p0=1000,
         s0=-50,

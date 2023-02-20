@@ -1,4 +1,7 @@
 __all__ = ["generate_vector_series_from_covariance_mat", "generate_avg_random_vector_series_from_covariance_mat"]
+
+import os
+import time
 from pathlib import Path
 from typing import List, Optional, Union, Tuple
 
@@ -6,6 +9,7 @@ import matplotlib.figure
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy
+from joblib import Parallel, delayed
 from tqdm import tqdm
 
 
@@ -96,8 +100,6 @@ def generate_avg_random_vector_series_from_covariance_mat(
     rng: Optional[np.random._generator.Generator] = None,
     verbose: bool = False,
 ) -> np.ndarray:
-    # if samples < cov.shape[0] and samples != 1:
-    #     raise ValueError(f"Got samples < cov.shape[0] & samples != 1. Not supported.")
     if not isinstance(mu, list):
         mu = [mu] * cov.shape[0]
     if len(mu) != cov.shape[0]:
@@ -112,19 +114,34 @@ def generate_avg_random_vector_series_from_covariance_mat(
 
     avg_Y = np.zeros((iterations, np.max((samples, cov.shape[0])), cov.shape[0]))
     if samples == 1 and cov.shape[0] == 1:
-        if verbose:
-            for it in tqdm(range(iterations), desc="Generating Random Vector Series"):
-                avg_Y[it] = rng.normal(mu[0], cov)
+        if iterations >= 100000:
+            t = []
+            t.append(Parallel(n_jobs=os.cpu_count())(delayed(rng.normal)(mu[0], cov) for _ in range(iterations)))
+            avg_Y = np.squeeze(np.array(t))
         else:
-            for it in range(iterations):
-                avg_Y[it] = rng.normal(mu[0], cov)
+            if verbose:
+                for it in tqdm(range(iterations), desc="Generating Random Vector Series"):
+                    avg_Y[it] = rng.normal(mu[0], cov)
+            else:
+                for it in range(iterations):
+                    avg_Y[it] = rng.normal(mu[0], cov)
     else:
-        if verbose:
-            for it in tqdm(range(iterations), desc="Generating Random Vector Series"):
-                avg_Y[it] = generate_vector_series_from_covariance_mat(cov, samples, mu, rng=rng)
+        if iterations > 100000:
+            t = []
+            t.append(
+                Parallel(n_jobs=4)(
+                    delayed(generate_vector_series_from_covariance_mat)(cov, samples, mu, rng)
+                    for _ in range(iterations)
+                )
+            )
+            avg_Y = np.squeeze(np.array(t))
         else:
-            for it in range(iterations):
-                avg_Y[it] = generate_vector_series_from_covariance_mat(cov, samples, mu, rng=rng)
+            if verbose:
+                for it in tqdm(range(iterations), desc="Generating Random Vector Series"):
+                    avg_Y[it] = generate_vector_series_from_covariance_mat(cov, samples, mu, rng=rng)
+            else:
+                for it in range(iterations):
+                    avg_Y[it] = generate_vector_series_from_covariance_mat(cov, samples, mu, rng=rng)
 
     avg_Y = np.mean(avg_Y, axis=0)
     if samples < cov.shape[0]:
@@ -205,10 +222,37 @@ def main(fig_output_path: Path, samples: int = 1000, number_of_random_variables:
     generate_many_random_vectors_and_plot(U, fig_output_path, samples=samples, iterations=iterations)
 
 
+def test_parallelizing(samples: int = 1000, number_of_random_variables: int = 2, iterations: int = 10000):
+    x = np.random.normal(size=[samples, number_of_random_variables])
+    U = np.cov(x.T)
+    rng = np.random.default_rng()
+    print(f"iterations = '{iterations}'")
+    start_time_unparallel = time.time_ns() / (10 ** 9)  # convert to floating-point seconds
+    temp = np.zeros((iterations, np.max((samples, U.shape[0])), U.shape[0]))
+    for it in range(iterations):
+        temp[it] = generate_vector_series_from_covariance_mat(U, samples, 0, rng)
+    end_time_unparallel = time.time_ns() / (10 ** 9)
+    tt_unparallel = end_time_unparallel - start_time_unparallel
+    print(f"total time unparallel: '{tt_unparallel} s'  ---  '{tt_unparallel / 60} min'")
+
+    start_time_parallel = time.time_ns() / (10 ** 9)
+    t = []
+    t.append(
+        Parallel(n_jobs=os.cpu_count())(
+            delayed(generate_vector_series_from_covariance_mat)(U, samples, 0, rng) for _ in range(iterations)
+        )
+    )
+    Y = np.squeeze(np.array(t))
+    end_time_parallel = time.time_ns() / (10 ** 9)
+    tt_parallel = end_time_parallel - start_time_parallel
+    print(f"total time parallel: '{tt_parallel} s'  ---  '{tt_parallel / 60} min'")
+
+
 if __name__ == "__main__":
     samples = 10000
     number_of_random_variables = 4
     iterations = 100000
+    # test_parallelizing(iterations=iterations)
     fig_output_path = Path("./ec")
     main(
         fig_output_path=fig_output_path,
