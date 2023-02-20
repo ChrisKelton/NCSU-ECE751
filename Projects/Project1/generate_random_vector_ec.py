@@ -96,8 +96,8 @@ def generate_avg_random_vector_series_from_covariance_mat(
     rng: Optional[np.random._generator.Generator] = None,
     verbose: bool = False,
 ) -> np.ndarray:
-    if samples < cov.shape[0] and samples != 1:
-        raise ValueError(f"Got samples < cov.shape[0] & samples != 1. Not supported.")
+    # if samples < cov.shape[0] and samples != 1:
+    #     raise ValueError(f"Got samples < cov.shape[0] & samples != 1. Not supported.")
     if not isinstance(mu, list):
         mu = [mu] * cov.shape[0]
     if len(mu) != cov.shape[0]:
