@@ -25,7 +25,7 @@ def plot_state_model_vs_observation_roughly_constant_velocity_model(
     x = np.arange(0, len(x_k))
     fig, ax = plt.subplots(2, 1, figsize=(10, 10))
     ax[0].plot(x, position_ground_truth, label="truth")
-    ax[0].plot(x, x_k[:, 0], "-.", label="state model position")
+    ax[0].plot(x, r_k[:, 0], "-.", label="state model position")
     # ax[0].plot(x, r_k, label="observation position")
     ax[0].set_title("Kalman Filter Discrete-Time, Time-Invariant State-Model", fontsize=9)
     ax[0].set_xlabel("Time (s)")
@@ -35,13 +35,16 @@ def plot_state_model_vs_observation_roughly_constant_velocity_model(
     # ax[0].legend(["state model position", "truth", "observation position"])
     ax[0].legend(["truth", "state model position"])
 
-    ax[1].plot(x, x_k[:, 1], label="state model velocity")
+    legend = []
     if velocity_const is not None:
-        ax[1].plot(x, [velocity_const] * len(x), "--")
-        ax[1].legend(["-- velocity constant"])
+        ax[1].plot(x, [velocity_const] * len(x), label="velocity constant")
+        legend.append("velocity constant")
+    legend.append("state estimate constant velocity")
+    ax[1].plot(x, x_k[:, 1], "-.", label="state estimate constant velocity")
     ax[1].set_xlabel("Time (s)")
     ax[1].set_xticks(xtick_positions, xticks)
     ax[1].set_ylabel("Velocity (m/s)")
+    ax[1].legend(legend)
 
     fig.tight_layout()
     fig.savefig(str(fig_output_path.absolute()))
@@ -66,7 +69,7 @@ def plot_state_model_vs_observation_roughly_constant_acceleration_model(
     xtick_positions = np.linspace(0, len(x), len(xticks))
     ax[0].set_xticks(xtick_positions, xticks)
     ax[0].set_ylabel("Position (m)")
-    ax[0].legend(["state model position", "observation position"])
+    ax[0].legend(["state model position", "truth"])
 
     ax[1].plot(x, x_k[:, 1], "-.", label="state model velocity")
     ax[1].plot(x, velocity_ground_truth, label="truth")
@@ -79,13 +82,16 @@ def plot_state_model_vs_observation_roughly_constant_acceleration_model(
     ax[1].set_xticks(xtick_positions, xticks)
     ax[1].set_ylabel("Velocity (m/s)")
 
+    legend = []
     if acceleration_const is not None:
-        ax[2].plot(x, [acceleration_const] * len(x), "--")
-        ax[2].legend(["-- acceleration constant"])
-    ax[2].plot(x, x_k[:, 2], label="state model acceleration")
+        ax[2].plot(x, [acceleration_const] * len(x), label="acceleration constant")
+        legend.append("acceleration constant")
+    legend.append("state model constant acceleration")
+    ax[2].plot(x, x_k[:, 2], "-.", label="state model acceleration")
     ax[2].set_xlabel("Time (s)")
     ax[2].set_xticks(xtick_positions, xticks)
     ax[2].set_ylabel("Acceleration (m/s^2)")
+    ax[2].legend(legend)
 
     fig.tight_layout()
     fig.savefig(str(fig_output_path.absolute()))
@@ -95,22 +101,23 @@ def plot_state_model_vs_observation_roughly_constant_acceleration_model(
 def initial_state_vector(
     m_0: List[float] = 0.0,
     PI_0: np.ndarray = np.zeros((1,)),
+    samples: int = 2,
     iterations: int = 1000,
     rng: Optional[np.random._generator.Generator] = None,
 ) -> np.ndarray:
-    return generate_avg_random_vector_series_from_covariance_mat(PI_0, m_0, samples=2, iterations=iterations, rng=rng)
+    return generate_avg_random_vector_series_from_covariance_mat(PI_0, m_0, samples=samples, iterations=iterations, rng=rng)
 
 
-def kalman_filter(
+def kalman_state_model(
     Q_k: Callable,
     F_k: Callable,
     G_k: Callable,
     C_k: np.ndarray,
     R_k: Callable,
+    m_0: List[float],
+    PI_0: np.ndarray,
     iterations: int = 100,
     rvg_iterations: int = 1000,
-    m_0: List[float] = None,
-    PI_0: np.ndarray = np.zeros((2, 2)),
     seed: Optional[int] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     if seed is not None:
@@ -122,7 +129,7 @@ def kalman_filter(
         m_0 = [0]
     x_k = np.zeros((iterations, len(m_0)))
     if PI_0.any():
-        x_0 = initial_state_vector(m_0, PI_0, iterations=rvg_iterations, rng=rng)
+        x_0 = initial_state_vector(m_0, PI_0, samples=1, iterations=rvg_iterations, rng=rng)
     else:
         x_0 = m_0
     x_k[0] = x_0
@@ -201,7 +208,8 @@ def roughly_constant_velocity_motion_model(
         F_k = lambda k: np.array(([[1, period], [0, 1]]))
         C_k = np.array([[1, 0], [0, 0]])
         m_0 = [p0, s0]
-        PI_0 = np.zeros((2, 2))
+        # PI_0 = np.zeros((2, 2))
+        PI_0 = np.eye(2)
     elif method == RoughlyConstantStateModel.ConstantAccelerationModelPosition or method == RoughlyConstantStateModel.ConstantAccelerationModelVelocityAndPosition:
         F_k = lambda k: np.array(([[1, period, (period ** 2) / 2], [0, 1, period], [0, 0, 1]]))
         if method == 2:
@@ -209,7 +217,8 @@ def roughly_constant_velocity_motion_model(
         else:
             C_k = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 0]])
         m_0 = [p0, s0, a0]
-        PI_0 = np.zeros((3, 3))
+        # PI_0 = np.zeros((3, 3))
+        PI_0 = np.eye(3)
     else:
         raise RuntimeError(f"Got unsupported method '{method}'. Choose from: '0', '1', '2', or '3'.")
 
@@ -224,7 +233,8 @@ def roughly_constant_velocity_motion_model(
                 [[(period ** 4) / 4, (period ** 3) / 2], [(period ** 3) / 2, period ** 2]]
             )
     elif method == RoughlyConstantStateModel.ConstantAccelerationModelPosition:
-        G_k = lambda k: np.array(([[(period ** 2) / 2, period, 1]]))
+        raise NotImplementedError(f"{method.name} Not Implemented")
+        G_k = lambda k: np.array(([[(period ** 2) / 2], [period], [1]]))
         if Q_k is None:
             Q_k = lambda k: np.eye(1) * acceleration_variance
     elif method == RoughlyConstantStateModel.ConstantAccelerationModelVelocityAndPosition:
@@ -242,16 +252,16 @@ def roughly_constant_velocity_motion_model(
     else:
         raise RuntimeError(f"Got unsupported method '{method}'. Choose from: '0', '1', '2', or '3'.")
 
-    x_k, r_k = kalman_filter(
+    x_k, r_k = kalman_state_model(
         Q_k=Q_k,
         F_k=F_k,
         G_k=G_k,
         C_k=C_k,
         R_k=R_k,
-        iterations=iterations,
-        rvg_iterations=rvg_iterations,
         m_0=m_0,
         PI_0=PI_0,
+        iterations=iterations,
+        rvg_iterations=rvg_iterations,
         seed=seed,
     )
     # ground truth
@@ -271,7 +281,7 @@ def roughly_constant_velocity_motion_model(
         if Path(fig_output_path).is_dir():
             Path(fig_output_path).mkdir(exist_ok=True, parents=True)
             fig_output_path = Path(fig_output_path) / "kalman_filter.png"
-        if method == 0 or method == 1:
+        if method == RoughlyConstantStateModel.ConstantVelocityModelPosition0 or method == RoughlyConstantStateModel.ConstantVelocityModelPosition1:
             plot_state_model_vs_observation_roughly_constant_velocity_model(
                 x_k, r_k, p_k, fig_output_path, velocity_const=s0, xticks=xticks
             )
@@ -283,13 +293,14 @@ def roughly_constant_velocity_motion_model(
 
 def main():
     seed = 1408
-    random_vector_generator_iterations = 1000
+    random_vector_generator_iterations = 1
     period = 0.1
     total_time = 10  # seconds
     iterations = int(total_time / period)
     # seed = None
-    fig_output_path = Path("./kalman_filter.png")
-    method = RoughlyConstantStateModel.ConstantVelocityModelPosition0  # can also be an integer: '0', '1', '2', or '3'
+    fig_output_path = Path("./kalman_state_model.png")
+    # RoughlyConstantStateModel.ConstantVelocityModelPosition1 or 1 is the preferred method
+    method = RoughlyConstantStateModel.ConstantVelocityModelPosition1  # can also be an integer: '0', '1', or '3' ('2' not implemented)
     roughly_constant_velocity_motion_model(
         p0=1000,
         s0=-50,
