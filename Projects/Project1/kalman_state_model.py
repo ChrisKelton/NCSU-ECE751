@@ -1,8 +1,9 @@
+from enum import Enum
 from pathlib import Path
 from typing import List, Callable, Optional, Tuple, Union
+
 import matplotlib.pyplot as plt
 import numpy as np
-from enum import Enum
 
 from generate_random_vector_ec import generate_avg_random_vector_series_from_covariance_mat
 
@@ -62,7 +63,7 @@ def plot_state_model_vs_observation_roughly_constant_acceleration_model(
 ):
     x = np.arange(0, len(x_k))
     fig, ax = plt.subplots(3, 1, figsize=(15, 15))
-    ax[0].plot(x, x_k[:, 0], "-.", label="state model position")
+    ax[0].plot(x, r_k[:, 0], "-.", label="state model position")
     ax[0].plot(x, position_ground_truth, label="truth")
     # ax[0].plot(x, r_k[:, 0], label="observation position")
     ax[0].set_xlabel("Time (s)")
@@ -71,12 +72,16 @@ def plot_state_model_vs_observation_roughly_constant_acceleration_model(
     ax[0].set_ylabel("Position (m)")
     ax[0].legend(["state model position", "truth"])
 
-    ax[1].plot(x, x_k[:, 1], "-.", label="state model velocity")
+    legend = []
+    if r_k.shape[1] > 1:
+        ax[1].plot(x, r_k[:, 1], "-.", label="observation velocity")
+        legend.append("observation velocity")
+    else:
+        ax[1].plot(x, x_k[:, 1], "-.", label="state model velocity")
+        legend.append("state model velocity")
     ax[1].plot(x, velocity_ground_truth, label="truth")
-    ax[1].legend(["state model velocity", "truth"])
-    # if r_k.shape[1] > 1:
-    #     ax[1].plot(x, r_k[:, 1], label="observation velocity")
-    #     ax[1].legend(["state model velocity", "observation velocity"])
+    legend.append("truth")
+    ax[1].legend(legend)
     ax[1].set_title("Roughly Constant Acceleration")
     ax[1].set_xlabel("Time (s)")
     ax[1].set_xticks(xtick_positions, xticks)
@@ -105,7 +110,9 @@ def initial_state_vector(
     iterations: int = 1000,
     rng: Optional[np.random._generator.Generator] = None,
 ) -> np.ndarray:
-    return generate_avg_random_vector_series_from_covariance_mat(PI_0, m_0, samples=samples, iterations=iterations, rng=rng)
+    return generate_avg_random_vector_series_from_covariance_mat(
+        PI_0, m_0, samples=samples, iterations=iterations, rng=rng
+    )
 
 
 def kalman_state_model(
@@ -204,13 +211,19 @@ def roughly_constant_velocity_motion_model(
     if R_k is None:
         R_k = lambda k: np.eye(2) * np.asarray((variance_R_k, 1))
 
-    if method is RoughlyConstantStateModel.ConstantVelocityModelPosition0 or method == RoughlyConstantStateModel.ConstantVelocityModelPosition1:
+    if (
+        method is RoughlyConstantStateModel.ConstantVelocityModelPosition0
+        or method == RoughlyConstantStateModel.ConstantVelocityModelPosition1
+    ):
         F_k = lambda k: np.array(([[1, period], [0, 1]]))
         C_k = np.array([[1, 0], [0, 0]])
         m_0 = [p0, s0]
         # PI_0 = np.zeros((2, 2))
         PI_0 = np.eye(2)
-    elif method == RoughlyConstantStateModel.ConstantAccelerationModelPosition or method == RoughlyConstantStateModel.ConstantAccelerationModelVelocityAndPosition:
+    elif (
+        method == RoughlyConstantStateModel.ConstantAccelerationModelPosition
+        or method == RoughlyConstantStateModel.ConstantAccelerationModelVelocityAndPosition
+    ):
         F_k = lambda k: np.array(([[1, period, (period ** 2) / 2], [0, 1, period], [0, 0, 1]]))
         if method == 2:
             C_k = np.array([[1, 0, 0], [0, 0, 0], [0, 0, 0]])
@@ -281,7 +294,10 @@ def roughly_constant_velocity_motion_model(
         if Path(fig_output_path).is_dir():
             Path(fig_output_path).mkdir(exist_ok=True, parents=True)
             fig_output_path = Path(fig_output_path) / "kalman_filter.png"
-        if method == RoughlyConstantStateModel.ConstantVelocityModelPosition0 or method == RoughlyConstantStateModel.ConstantVelocityModelPosition1:
+        if (
+            method == RoughlyConstantStateModel.ConstantVelocityModelPosition0
+            or method == RoughlyConstantStateModel.ConstantVelocityModelPosition1
+        ):
             plot_state_model_vs_observation_roughly_constant_velocity_model(
                 x_k, r_k, p_k, fig_output_path, velocity_const=s0, xticks=xticks
             )
@@ -300,7 +316,9 @@ def main():
     # seed = None
     fig_output_path = Path("./kalman_state_model.png")
     # RoughlyConstantStateModel.ConstantVelocityModelPosition1 or 1 is the preferred method
-    method = RoughlyConstantStateModel.ConstantVelocityModelPosition1  # can also be an integer: '0', '1', or '3' ('2' not implemented)
+    method = (
+        RoughlyConstantStateModel.ConstantVelocityModelPosition1
+    )  # can also be an integer: '0', '1', or '3' ('2' not implemented)
     roughly_constant_velocity_motion_model(
         p0=1000,
         s0=-50,
