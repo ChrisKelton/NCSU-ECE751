@@ -196,6 +196,7 @@ def roughly_constant_velocity_motion_model(
     seed: Optional[int] = None,
     fig_output_path: Optional[Path] = None,
     method: Union[int, RoughlyConstantStateModel] = RoughlyConstantStateModel.ConstantVelocityModelPosition0,
+    retain_all_obs: bool = False,
 ):
     if isinstance(method, int):
         method = RoughlyConstantStateModel(str(method))
@@ -216,7 +217,10 @@ def roughly_constant_velocity_motion_model(
         or method == RoughlyConstantStateModel.ConstantVelocityModelPosition1
     ):
         F_k = lambda k: np.array(([[1, period], [0, 1]]))
-        C_k = np.array([[1, 0], [0, 0]])
+        if retain_all_obs:
+            C = np.array([[1, 0], [0, 1]])
+        else:
+            C = np.array([[1, 0], [0, 0]])
         m_0 = [p0, s0]
         # PI_0 = np.zeros((2, 2))
         PI_0 = np.eye(2)
@@ -225,10 +229,12 @@ def roughly_constant_velocity_motion_model(
         or method == RoughlyConstantStateModel.ConstantAccelerationModelVelocityAndPosition
     ):
         F_k = lambda k: np.array(([[1, period, (period ** 2) / 2], [0, 1, period], [0, 0, 1]]))
-        if method == 2:
-            C_k = np.array([[1, 0, 0], [0, 0, 0], [0, 0, 0]])
+        if retain_all_obs:
+            C = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+        elif method == 2:
+            C = np.array([[1, 0, 0], [0, 0, 0], [0, 0, 0]])
         else:
-            C_k = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 0]])
+            C = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 0]])
         m_0 = [p0, s0, a0]
         # PI_0 = np.zeros((3, 3))
         PI_0 = np.eye(3)
@@ -269,7 +275,7 @@ def roughly_constant_velocity_motion_model(
         Q_k=Q_k,
         F_k=F_k,
         G_k=G_k,
-        C_k=C_k,
+        C_k=C,
         R_k=R_k,
         m_0=m_0,
         PI_0=PI_0,
