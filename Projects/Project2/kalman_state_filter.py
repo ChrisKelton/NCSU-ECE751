@@ -12,7 +12,7 @@ def plot_kalman_filter_estimates_vs_observations_and_ground_truth(
     observations: np.ndarray,
     estimates: np.ndarray,
     ground_truth: List[float],
-    fig_output_path: Path,
+    fig_output_path: Optional[Path] = None,
     xticks: Optional[Union[list, np.ndarray]] = None,
 ):
     x = np.arange(0, len(observations))
@@ -39,13 +39,16 @@ def plot_kalman_filter_estimates_vs_observations_and_ground_truth(
     ax[1].legend(["truth", "observations", "estimates"])
 
     fig.tight_layout()
-    fig.savefig(fig_output_path)
-    plt.close()
+    if fig_output_path is not None:
+        fig.savefig(fig_output_path)
+        plt.close()
+    else:
+        plt.show()
 
 
 def plot_kalman_filter_kalman_gain_position_and_velocity(
     K: np.ndarray,
-    fig_output_path: Path,
+    fig_output_path: Optional[Path] = None,
     xticks: Optional[Union[list, np.ndarray]] = None,
 ):
     x = np.arange(0, len(K))
@@ -68,13 +71,16 @@ def plot_kalman_filter_kalman_gain_position_and_velocity(
     ax[1].set_ylim([0, 1.5])
 
     fig.tight_layout()
-    fig.savefig(fig_output_path)
-    plt.close()
+    if fig_output_path is not None:
+        fig.savefig(fig_output_path)
+        plt.close()
+    else:
+        plt.show()
 
 
 def plot_kalman_filter_estimate_covariance_diagonals(
     P: np.ndarray,
-    fig_output_path: Path,
+    fig_output_path: Optional[Path] = None,
     xticks: Optional[Union[list, np.ndarray]] = None,
 ):
     x = np.arange(0, len(P))
@@ -97,8 +103,11 @@ def plot_kalman_filter_estimate_covariance_diagonals(
     ax[1].set_yscale("log")
 
     fig.tight_layout()
-    fig.savefig(fig_output_path)
-    plt.close()
+    if fig_output_path is not None:
+        fig.savefig(fig_output_path)
+        plt.close()
+    else:
+        plt.show()
 
 
 def kalman_filter(
@@ -171,6 +180,7 @@ def roughly_constant_velocity_motion_filter(
     rvg_iterations: int = 100,
     seed: Optional[int] = None,
     fig_output_path: Optional[Path] = None,
+    plots: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     # p_k = ground truth position, s_k = ground truth position
     t0 = time_ns()
@@ -187,7 +197,6 @@ def roughly_constant_velocity_motion_filter(
         iterations=n_observations,
         rvg_iterations=rvg_iterations,
         seed=seed,
-        fig_output_path=fig_output_path,
         retain_all_obs=True,
     )
     t1 = time_ns()
@@ -208,16 +217,19 @@ def roughly_constant_velocity_motion_filter(
     t1 = time_ns()
     print(f"Time taken -- {(t1 - t0)/1e9:.3f}s\n")
 
-    if fig_output_path is not None:
+    if fig_output_path is not None or plots:
         print("*** Plotting ***")
         total_time = n_observations * period
         xticks = np.arange(0, total_time + 1)
-        if Path(fig_output_path).is_dir():
-            Path(fig_output_path).mkdir(exist_ok=True, parents=True)
-            temp_path = Path(fig_output_path) / "kalman_filter_position.png"
+        if fig_output_path is not None:
+            if Path(fig_output_path).is_dir():
+                Path(fig_output_path).mkdir(exist_ok=True, parents=True)
+                temp_path = Path(fig_output_path) / "kalman_filter_position.png"
+            else:
+                temp_path = fig_output_path
+                fig_output_path.parent.mkdir(exist_ok=True, parents=True)
         else:
-            temp_path = fig_output_path
-            fig_output_path.parent.mkdir(exist_ok=True, parents=True)
+            temp_path = None
         plot_kalman_filter_estimates_vs_observations_and_ground_truth(
             observations=observations,
             estimates=x_estimator,
@@ -225,13 +237,15 @@ def roughly_constant_velocity_motion_filter(
             fig_output_path=temp_path,
             xticks=xticks,
         )
-        temp_path = temp_path.parent / "kalman_filter_gain.png"
+        if temp_path is not None:
+            temp_path = temp_path.parent / "kalman_filter_gain.png"
         plot_kalman_filter_kalman_gain_position_and_velocity(
             K=np.diagonal(K, axis1=1, axis2=2),  # get diagonals of Kalman Gain in the form of [position_diag, velocity_diag]
             fig_output_path=temp_path,
             xticks=xticks[1:],
         )
-        temp_path = temp_path.parent / "kalman_filter_estimate_covariance_diagonals.png"
+        if temp_path is not None:
+            temp_path = temp_path.parent / "kalman_filter_estimate_covariance_diagonals.png"
         plot_kalman_filter_estimate_covariance_diagonals(
             P=np.diagonal(P, axis1=1, axis2=2),
             fig_output_path=temp_path,
@@ -248,7 +262,8 @@ def main():
     total_time = 10  # seconds
     n_observations = int(total_time / period)
     fig_output_path = Path("./kalman_state_filter.png")
-    initial_state_estimate = np.expand_dims(np.array((0, 0)), 1)  # 2 x 1
+    plots = True
+    initial_state_estimate = np.expand_dims(np.array((900, -100)), 1)  # 2 x 1
     P_initial = np.array((1000, 1000))
     obs, est, P, K = roughly_constant_velocity_motion_filter(
         initial_state_estimate=initial_state_estimate,
@@ -263,6 +278,7 @@ def main():
         rvg_iterations=random_vector_generator_iterations,
         seed=seed,
         fig_output_path=fig_output_path,
+        plots=plots,
     )
 
 
