@@ -1,3 +1,5 @@
+__all__ = ["kalman_state_model", "roughly_constant_velocity_motion_model"]
+
 from pathlib import Path
 from typing import List, Callable, Optional, Tuple, Union
 
@@ -55,13 +57,14 @@ def initial_state_vector(
 
 
 def kalman_state_model(
-    Q_k: Callable,
-    F_k: Callable,
-    G_k: Callable,
-    C_k: np.ndarray,
-    R_k: Callable,
+    Q_k: Union[np.ndarray, Callable],
+    F_k: Union[np.ndarray, Callable],
+    G_k: Union[np.ndarray, Callable],
+    C: np.ndarray,
+    R_k: Union[np.ndarray, Callable],
     m_0: List[float],
     PI_0: np.ndarray,
+    n_vars_to_solve: int,
     iterations: int = 100,
     rvg_iterations: int = 1000,
     seed: Optional[int] = None,
@@ -70,6 +73,15 @@ def kalman_state_model(
         rng = np.random.default_rng(seed)
     else:
         rng = np.random.default_rng()
+
+    if not callable(Q_k):
+        Q_k = lambda k: Q_k
+    if not callable(F_k):
+        F_k = lambda k: F_k
+    if not callable(G_k):
+        G_k = lambda k: G_k
+    if not callable(R_k):
+        R_k = lambda k: R_k
 
     if m_0 is None:
         m_0 = [0]
@@ -80,17 +92,17 @@ def kalman_state_model(
         x_0 = m_0
     x_k[0] = x_0
 
-    vars_to_solve = len(np.where(C_k == 1)[0])
-    r_k = np.zeros((iterations, vars_to_solve))
-    r_k[0] = m_0[:vars_to_solve]
+    n_obs_to_retain = len(np.where(C == 1)[0])
+    r_k = np.zeros((iterations, n_obs_to_retain))
+    r_k[0] = m_0[:n_obs_to_retain]
     for k in range(1, iterations):
         u = generate_avg_random_vector_series_from_covariance_mat(
-            Q_k(k - 1), samples=vars_to_solve, iterations=rvg_iterations, rng=rng
+            Q_k(k - 1), samples=n_vars_to_solve, iterations=rvg_iterations, rng=rng
         )
         w = generate_avg_random_vector_series_from_covariance_mat(
             R_k(k - 1), samples=1, iterations=rvg_iterations, rng=rng
         )
-        print(f"k = '{k}'")
+        # print(f"k = '{k}'")
         s_k = np.expand_dims(F_k(k) @ x_k[k - 1], 1)
 
         if G_k(k).shape[1] == u.shape[0]:
@@ -108,11 +120,11 @@ def kalman_state_model(
                 f"'{u}'"
             )
 
-        print(f"x_k[k] = '{x_k[k]}'")
+        # print(f"x_k[k] = '{x_k[k]}'")
 
-        temp_r_k = C_k @ x_k[k]
-        r_k[k] = np.squeeze(np.add(np.column_stack(temp_r_k[:vars_to_solve]).T, w.T[:vars_to_solve]).T)
-        print(f"r_k[k] = '{r_k[k]}'\n\n")
+        temp_r_k = C @ x_k[k]
+        r_k[k] = np.squeeze(np.add(np.column_stack(temp_r_k[:n_obs_to_retain]).T, w.T[:n_obs_to_retain]).T)
+        # print(f"r_k[k] = '{r_k[k]}'\n\n")
 
     return x_k, r_k
 
@@ -124,13 +136,25 @@ def roughly_constant_velocity_motion_model(
     period: float = 1,
     acceleration_variance: Optional[float] = None,
     variance_R_k: Optional[float] = None,
-    Q_k: Optional[Callable] = None,
-    R_k: Optional[Callable] = None,
+    Q_k: Optional[Union[np.ndarray, Callable]] = None,
+    R_k: Optional[Union[np.ndarray, Callable]] = None,
     iterations: int = 100,
     rvg_iterations: int = 1000,
     seed: Optional[int] = None,
     fig_output_path: Optional[Path] = None,
-):
+    retain_all_obs: bool = False,
+) -> Tuple[
+    np.ndarray,
+    Callable,
+    Callable,
+    Callable,
+    np.ndarray,
+    Callable,
+    List[float],
+    np.ndarray,
+    List[float],
+    List[float],
+]:
     if seed is not None:
         rng = np.random.default_rng(seed)
     else:
@@ -142,9 +166,14 @@ def roughly_constant_velocity_motion_model(
 
     if R_k is None:
         R_k = lambda k: np.eye(2) * np.asarray((variance_R_k, 1))
+    elif not callable(R_k):
+        R_k = lambda k: R_k
 
     F_k = lambda k: np.array(([[1, period], [0, 1]]))
-    C_k = np.array([[1, 0], [0, 0]])
+    if retain_all_obs:
+        C = np.array([[1, 0], [0, 1]])
+    else:
+        C = np.array([[1, 0], [0, 0]])
     m_0 = [p0, s0]
     PI_0 = np.eye(2)
 
@@ -153,15 +182,18 @@ def roughly_constant_velocity_motion_model(
         Q_k = lambda k: acceleration_variance * np.array(
             [[(period ** 4) / 4, (period ** 3) / 2], [(period ** 3) / 2, period ** 2]]
         )
+    elif not callable(Q_k):
+        Q_k = lambda k: Q_k
 
     x_k, r_k = kalman_state_model(
         Q_k=Q_k,
         F_k=F_k,
         G_k=G_k,
-        C_k=C_k,
+        C=C,
         R_k=R_k,
         m_0=m_0,
         PI_0=PI_0,
+        n_vars_to_solve=1,
         iterations=iterations,
         rvg_iterations=rvg_iterations,
         seed=seed,
@@ -186,6 +218,8 @@ def roughly_constant_velocity_motion_model(
         plot_state_model_vs_observation_roughly_constant_velocity_model(
             x_k, r_k, p_k, fig_output_path, velocity_const=s0, xticks=xticks
         )
+
+    return r_k, Q_k, F_k, G_k, C, R_k, m_0, PI_0, p_k, s_k
 
 
 def main():

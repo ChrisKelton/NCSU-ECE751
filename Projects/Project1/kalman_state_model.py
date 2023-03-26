@@ -132,6 +132,15 @@ def kalman_state_model(
     else:
         rng = np.random.default_rng()
 
+    if not callable(Q_k):
+        Q_k = lambda k: Q_k
+    if not callable(F_k):
+        F_k = lambda k: F_k
+    if not callable(G_k):
+        G_k = lambda k: G_k
+    if not callable(R_k):
+        R_k = lambda k: R_k
+
     if m_0 is None:
         m_0 = [0]
     x_k = np.zeros((iterations, len(m_0)))
@@ -155,7 +164,7 @@ def kalman_state_model(
         w = generate_avg_random_vector_series_from_covariance_mat(
             R_k(k - 1), samples=1, iterations=rvg_iterations, rng=rng
         )
-        print(f"k = '{k}'")
+        # print(f"k = '{k}'")
         s_k = np.expand_dims(F_k(k) @ x_k[k - 1], 1)
 
         if G_k(k).shape[1] == u.shape[0]:
@@ -173,11 +182,11 @@ def kalman_state_model(
                 f"'{u}'"
             )
 
-        print(f"x_k[k] = '{x_k[k]}'")
+        # print(f"x_k[k] = '{x_k[k]}'")
 
         temp_r_k = C_k @ x_k[k]
         r_k[k] = np.squeeze(np.add(np.column_stack(temp_r_k[:vars_to_solve]).T, w.T[:vars_to_solve]).T)
-        print(f"r_k[k] = '{r_k[k]}'\n\n")
+        # print(f"r_k[k] = '{r_k[k]}'\n\n")
 
     return x_k, r_k
 
@@ -189,14 +198,26 @@ def roughly_constant_velocity_motion_model(
     period: float = 1,
     acceleration_variance: Optional[float] = None,
     variance_R_k: Optional[float] = None,
-    Q_k: Optional[Callable] = None,
-    R_k: Optional[Callable] = None,
+    Q_k: Optional[Union[np.ndarray, Callable]] = None,
+    R_k: Optional[Union[np.ndarray, Callable]] = None,
     iterations: int = 100,
     rvg_iterations: int = 1000,
     seed: Optional[int] = None,
     fig_output_path: Optional[Path] = None,
     method: Union[int, RoughlyConstantStateModel] = RoughlyConstantStateModel.ConstantVelocityModelPosition0,
-):
+    retain_all_obs: bool = False,
+) -> Tuple[
+    np.ndarray,
+    Callable,
+    Callable,
+    Callable,
+    np.ndarray,
+    Callable,
+    List[float],
+    np.ndarray,
+    List[float],
+    List[float],
+]:
     if isinstance(method, int):
         method = RoughlyConstantStateModel(str(method))
     if seed is not None:
@@ -210,13 +231,18 @@ def roughly_constant_velocity_motion_model(
 
     if R_k is None:
         R_k = lambda k: np.eye(2) * np.asarray((variance_R_k, 1))
+    elif not callable(R_k):
+        R_k = lambda k: R_k
 
     if (
         method is RoughlyConstantStateModel.ConstantVelocityModelPosition0
         or method == RoughlyConstantStateModel.ConstantVelocityModelPosition1
     ):
         F_k = lambda k: np.array(([[1, period], [0, 1]]))
-        C_k = np.array([[1, 0], [0, 0]])
+        if retain_all_obs:
+            C = np.array([[1, 0], [0, 1]])
+        else:
+            C = np.array([[1, 0], [0, 0]])
         m_0 = [p0, s0]
         # PI_0 = np.zeros((2, 2))
         PI_0 = np.eye(2)
@@ -225,10 +251,12 @@ def roughly_constant_velocity_motion_model(
         or method == RoughlyConstantStateModel.ConstantAccelerationModelVelocityAndPosition
     ):
         F_k = lambda k: np.array(([[1, period, (period ** 2) / 2], [0, 1, period], [0, 0, 1]]))
-        if method == 2:
-            C_k = np.array([[1, 0, 0], [0, 0, 0], [0, 0, 0]])
+        if retain_all_obs:
+            C = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+        elif method == 2:
+            C = np.array([[1, 0, 0], [0, 0, 0], [0, 0, 0]])
         else:
-            C_k = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 0]])
+            C = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 0]])
         m_0 = [p0, s0, a0]
         # PI_0 = np.zeros((3, 3))
         PI_0 = np.eye(3)
@@ -265,11 +293,14 @@ def roughly_constant_velocity_motion_model(
     else:
         raise RuntimeError(f"Got unsupported method '{method}'. Choose from: '0', '1', '2', or '3'.")
 
+    if not callable(Q_k):
+        Q_k = lambda k: Q_k
+
     x_k, r_k = kalman_state_model(
         Q_k=Q_k,
         F_k=F_k,
         G_k=G_k,
-        C_k=C_k,
+        C_k=C,
         R_k=R_k,
         m_0=m_0,
         PI_0=PI_0,
@@ -306,6 +337,7 @@ def roughly_constant_velocity_motion_model(
                 x_k, r_k, p_k_not_constant_velocity, s_k, fig_output_path, acceleration_const=a0, xticks=xticks
             )
 
+    return r_k, Q_k, F_k, G_k, C, R_k, m_0, PI_0, p_k, s_k
 
 def main():
     seed = 1408
